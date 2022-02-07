@@ -1,0 +1,25 @@
+# Library dependencies for the DoF - Deep Model Core Output Framework project
+# You have to install these libraries, before you can run the code:
+# 'pip install -r requirements.txt'
+
+# Python version dependency
+python>=3.9
+
+# Standard library dependencies:
+# csv
+# enum
+# json
+# os
+# random
+# sys
+# time
+
+# Additional library dependencies
+
+click>=8.0.3
+nltk>=3.6.5
+odfpy>=1.4.1
+PyPDF4>=1.27.0
+python-docx>=0.8.11
+torch>= 1.10.2
+Unidecode>=1.2.0

@@ -62,7 +62,7 @@ class Model_1(torch.nn.Module):
         x = self.embedding(batch_text, batch_offsets)
         x = torch.nn.functional.relu(self.fc1(x), inplace=True)
         x = torch.nn.functional.relu(self.fc2(x), inplace=True)
-        return self.fc3(x)
+        return torch.sigmoid(self.fc3(x))
 
 
     def init_weights(self, init_range : float = 0.5):
@@ -130,7 +130,7 @@ class Model_2(torch.nn.Module):
         x = torch.cat((x, model_1_outputs), dim=1)
         x = torch.nn.functional.relu(self.fc1(x), inplace=True)
         x = torch.nn.functional.relu(self.fc2(x), inplace=True)
-        return torch.tanh(self.fc3(x))
+        return torch.sigmoid(self.fc3(x))
 
 
     def init_weights(self, init_range : float = 0.5):

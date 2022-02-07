@@ -13,8 +13,8 @@ import torch
 
 from .constants import MODELS_DIR
 from .filetools import extract_text, read_csv
-from .functions import consoleprint
-from .models import (batchify, save_model, Models, Model_1, Model_2, Model_3)
+from .functions import consoleprint, get_inital_wrapper
+from .models import batchify, save_model, Models, Model_1, Model_2, Model_3
 from .textprocessing import text_to_vector
 
 
@@ -32,18 +32,50 @@ CSV_FIELDS_MODEL_2 = ['Severity_F', 'Severity_N', 'Severity_P', 'Severity_R',
 DATA_DIR = './data'
 
 
-def auto_train() -> dict:
+def auto_train(training_file : str, validation_file : str,
+               batch_size : int = None, num_epochs : int = None) -> dict:
     """
     Perform automated training with pre-defined settings
     ====================================================
 
+    Parameters
+    ----------
+    training_file : str
+        File name (and path) of the training dataset.
+    validation_file : str
+        File name (and path) of the validation dataset.
+    batch_size : int, optional (None if omitted)
+        Batch size in training, if None is given, default value is used.
+    num_epochs : int, optional (None if omitted)
+        Number of epochs to train, if None is given, default value is used.
+
     Returns
     -------
-    dict
+    dict[dict[key:list]]
+        The result of the training.
     """
 
-    data = make_dataset_from_csv('./data/train_demo/rixk_demo.csv')
-    return train(data, data)
+    training_data = make_dataset_from_csv(training_file)
+    result = get_inital_wrapper()
+    if validation_file == '':
+        validation_data = get_inital_wrapper()
+    else:
+        validation_data = make_dataset_from_csv(validation_file)
+    if num_epochs is None:
+        if batch_size is None:
+            result = train(training_data, validation_data)
+        else:
+            result = train(training_data, validation_data,
+                           batch_size=batch_size)
+    else:
+        if batch_size is None:
+            result = train(training_data, validation_data,
+                           num_epochs=num_epochs)
+        else:
+            result = train(training_data, validation_data,
+                           batch_size=batch_size, num_epochs=num_epochs)
+
+    return result
 
 
 def default_save_criterion(epoch_id : int, epoch_max : int, train_losses : list,
@@ -113,15 +145,6 @@ def default_stop_criterion(epoch_id : int, epoch_max : int, train_losses : list,
     return False
 
 
-def get_inital_dataset() -> dict:
-    """
-    Get an empty dataset
-    ====================
-    """
-
-    return {'model_1' : {}, 'model_2' : {}, 'model_3' : {}}
-
-
 def make_dataset_from_csv(file_name : str) -> dict:
     """
     Create dataset from CSV file
@@ -142,7 +165,7 @@ def make_dataset_from_csv(file_name : str) -> dict:
         primitives, further conversion is needed in most cases.
     """
 
-    result = get_inital_dataset()
+    result = get_inital_wrapper()
     base_path = path_split(file_name)[0]
     data = read_csv(file_name)
     if not all([k in data[0] for k in CSV_FIELDS_MODEL_1]) or\
@@ -193,7 +216,7 @@ def make_dataset_from_folder(root_folder : str, apply_shuffle : bool = True) -> 
         model_1 and model_2 are empty.
     """
 
-    result = get_inital_dataset()
+    result = get_inital_wrapper()
     if isdir(root_folder):
         if all([isdir(path_join(root_folder, '0')),
                 isdir(path_join(root_folder, '1'))]):
@@ -213,7 +236,7 @@ def make_dataset_from_folder(root_folder : str, apply_shuffle : bool = True) -> 
 
 
 def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16,
-          num_epochs : int = 1000, allow_cuda : bool = True,
+          num_epochs : int = 5000, allow_cuda : bool = True,
           use_shuffle : bool = True, save_criterion : callable = None,
           stop_criterion : callable = None, save_on_finish : bool = True) -> dict:
     """
@@ -232,7 +255,7 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
         not get trained.
     batch_size : int, optional (16 if omitted)
         Size of a batch.
-    num_epochs : int, optional (1000 if omitted)
+    num_epochs : int, optional (10000 if omitted)
         Number of epochs to train. In the process count of epochs begins with 1
         and includes also the value of num_epochs.
     allow_cuda : bool, optional (True if omitted)
@@ -252,7 +275,7 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
 
     Returns
     -------
-    dict[list]
+    dict[dict[key:list]]
         The result of the training.
 
     Raises
@@ -279,7 +302,7 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
     if stop_criterion is None:
         stop_criterion = default_stop_criterion
     # Initialize result
-    result = {'model_1' : {}, 'model_2' : {}, 'model_3' : {}}
+    result = get_inital_wrapper()
     # Check dataset's keys
     for key in ['model_1', 'model_2', 'model_3']:
         if key not in train_dataset:
@@ -304,9 +327,10 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
             Models.MODEL_1 = Model_1()
         Models.MODEL_1.to(device)
         # Prepare model helpers
-        criterion = torch.nn.CrossEntropyLoss()
+        criterion = torch.nn.MSELoss()
         optimizer = torch.optim.SGD(Models.MODEL_1.parameters(),
                                      lr=Learning_rate_model_1)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.1)
         train_losses, train_accuracies = [], []
         validation_losses, validation_accuracies = [], []
         train_len = len(train_dataset['model_1'])
@@ -340,10 +364,13 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
                             section_corrects += 1
                 section_losses += [loss.item() for i in range(targets.size(0))]
             train_losses.append(sum(section_losses) / train_len)
-            train_accuracies.append(section_corrects / train_len)
+            train_accuracies.append(section_corrects / (train_len * 9))
             consoleprint('Epoch: {}/{} - TRAIN - loss: {:.6f} - accuracy: {:.6f}'
                          .format(epoch, num_epochs, train_losses[-1],
                                  train_accuracies[-1]))
+            # Decreasing learning rate, high start value is needed.
+            if epoch % 500 == 0:
+                scheduler.step()
             # Validation
             if len(validation_dataset['model_1']) > 0:
                 # Training
@@ -369,7 +396,8 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
                         section_losses += [loss.item()
                                            for i in range(targets.size(0))]
                 validation_losses.append(sum(section_losses) / validation_len)
-                validation_accuracies.append(section_corrects / validation_len)
+                validation_accuracies.append(section_corrects /
+                                             (validation_len * 9))
                 consoleprint('Epoch: {}/{} - VALIDATION - loss: {:.6f} - accuracy: {:.6f}'
                              .format(epoch, num_epochs, validation_losses[-1],
                                      validation_accuracies[-1]))
@@ -399,6 +427,7 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
         criterion = torch.nn.MSELoss()
         optimizer = torch.optim.SGD(Models.MODEL_2.parameters(),
                                      lr=Learning_rate_model_2)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.1)
         train_losses, train_accuracies = [], []
         validation_losses, validation_accuracies = [], []
         train_len = len(train_dataset['model_2'])
@@ -432,10 +461,13 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
                             section_corrects += 1
                 section_losses += [loss.item() for i in range(targets.size(0))]
             train_losses.append(sum(section_losses) / train_len)
-            train_accuracies.append(section_corrects / train_len)
+            train_accuracies.append(section_corrects / (train_len * 18))
             consoleprint('Epoch: {}/{} - TRAIN - loss: {:.6f} - accuracy: {:.6f}'
                          .format(epoch, num_epochs, train_losses[-1],
                                  train_accuracies[-1]))
+            # Decreasing learning rate, high start value is needed.
+            if epoch % 500 == 0:
+                scheduler.step()
             # Validation
             if len(validation_dataset['model_2']) > 0:
                 # Training
@@ -461,7 +493,8 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
                         section_losses += [loss.item()
                                            for i in range(targets.size(0))]
                 validation_losses.append(sum(section_losses) / validation_len)
-                validation_accuracies.append(section_corrects / validation_len)
+                validation_accuracies.append(section_corrects
+                                             / (validation_len * 18))
                 consoleprint('Epoch: {}/{} - VALIDATION - loss: {:.6f} - accuracy: {:.6f}'
                              .format(epoch, num_epochs, validation_losses[-1],
                                      validation_accuracies[-1]))
@@ -491,6 +524,7 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
         criterion = torch.nn.BCELoss()
         optimizer = torch.optim.SGD(Models.MODEL_3.parameters(),
                                      lr=Learning_rate_model_3)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.1)
         train_losses, train_accuracies = [], []
         validation_losses, validation_accuracies = [], []
         train_len = len(train_dataset['model_3'])
@@ -527,6 +561,9 @@ def train(train_dataset : dict, validation_dataset : dict, batch_size : int = 16
             consoleprint('Epoch: {}/{} - TRAIN - loss: {:.6f} - accuracy: {:.6f}'
                          .format(epoch, num_epochs, train_losses[-1],
                                  train_accuracies[-1]))
+            # Decreasing learning rate, high start value is needed.
+            if epoch % 500 == 0:
+                scheduler.step()
             # Validation
             if len(validation_dataset['model_3']) > 0:
                 # Training

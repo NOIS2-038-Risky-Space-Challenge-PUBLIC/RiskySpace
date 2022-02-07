@@ -39,6 +39,15 @@ def consoleprint(text : str, level : PrintLevels = PrintLevels.INFO,
         print('{} {}'.format(level.value, text))
 
 
+def get_inital_wrapper() -> dict:
+    """
+    Get an empty wrapper for dataset or result
+    ==========================================
+    """
+
+    return {'model_1' : {}, 'model_2' : {}, 'model_3' : {}}
+
+
 def module_setup():
     """
     Check whether wordnet dataset is downloaded
